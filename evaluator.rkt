@@ -13,7 +13,7 @@
                                        env))
         ((application? exp)
          (apply-process (eval (operator exp) env)
-                (value-of-operands exp env)))
+                (list-of-values (operands exp) env)))
         (else (error "unkonwn expression! -- EVAL" exp))))
 
 (define (apply-process proc operands)
@@ -31,6 +31,7 @@
   (if (pair? exp)
       (car exp)
       (error "unkown expression -- EXP-TAG" exp)))
+(define expression-tag exp-tag)
 
 (define (self-evaluating? exp)
   (or (number? exp) (string? exp)))
@@ -60,13 +61,34 @@
 
 (define (begin? exp) (eq? (expression-tag exp) 'begin))
 (define (begin-actions exp) (cdr exp))
+(define (make-begin exps) (cons 'begin exps))
 
 (define (cond? exp) (eq? (expression-tag exp) 'cond))
 (define (cond-clauses exp) (cdr exp))
+(define (cond-else-clause? clause) (eq? 'else (car clause)))
 (define (first-clause clauses) (car clauses))
 (define (rest-clauses clauses) (cdr clauses))
 (define (clause-predicate clause) (car clause))
 (define (clause-actions clause) (cdr clause))
+
+(define (lambda? exp) (eq? 'lambda (expression-tag exp)))
+(define (lambda-params exp) (cadr exp))
+(define (lambda-body exp) (cddr exp))
+
+(define (make-procedure body params env)
+  (list 'procedure body params env))
+(define (procedure-body proc) (cadr proc))
+(define (procedure-params proc) (caddr proc))
+(define (procedure-env proc) (cadddr proc))
+
+(define (application? exp) (pair? exp))
+(define (operator exp) (car exp))
+(define (operands exp) (cdr exp))
+
+(define (primitive-procedure? exp) 1)
+(define (apply-primitive-procedure proc operands) 1)
+
+(define (compound-procedure? exp) (eq? 'procedure (expression-tag exp)))
 ;; eval-???
 (define (eval-definition exp env)
   (definite! (definition-variable exp)
@@ -84,6 +106,20 @@
 (define (eval-begin exp env)
   (eval-sequence (begin-actions exp) env))
 
+(define (list-of-values exps env)
+  (if (null? exps)
+      nil
+      (let ((left (eval (car exps) env)))
+        (cons left
+              (list-of-values (cdr exps) env)))))
+
+(define (eval-sequence exps env)
+  (cond ((null? (cdr exps)) (eval (car exps) env))
+        (else (eval (car exps) env)
+              (eval-sequence (cdr exps) env))))
+
+(define (sequence->exp se)
+  (make-begin se))
 ;; derivative syntax
 (define (cond->if exp)
   (clauses->if (cond-clauses exp)))
@@ -99,4 +135,27 @@
 
 
 ;; env  representation
-(define (lookup-variable exp env) )
+(define the-empty-env nil)
+(define (empty-env? env) (null? env))
+(define (frame-to-env frame env) (cons frame env))
+(define (first-frame env) (car env))
+(define (up-env env) (cdr env))
+
+(define the-empty-frame (list 'frame))
+(define (empty-frame? frame)
+  (or (null? frame) (and (eq? (car frame) 'frame) (null? (cdr frame)))))
+(define (frame-pairs frame) (cdr frame))
+(define (first-pair pairs) (car pairs))
+(define (rest-pairs pairs) (cdr pairs))
+(define (add-frame key val frame)
+  (set-cdr! frame
+            (cons (cons key val)
+                  (frame-pairs frame))))
+(define (pair-key pair) (car pair))
+(define (pair-value pair) (cdr pair))
+(define (set-pair-value! pair new-val) (set-cdr! pair new-val))
+
+(define (lookup-variable exp env) 1)
+(define (extend-env env params args) 1)
+(define (definite! var val env) 1)
+(define (set-value! var val env) 1)
