@@ -134,10 +134,10 @@
                      (clauses->if (rest-clauses clauses)))))))
 
 
-;; env  representation
+;; env , frame  representation
 (define the-empty-env nil)
 (define (empty-env? env) (null? env))
-(define (frame-to-env frame env) (cons frame env))
+(define (make-env frame env) (cons frame env))
 (define (first-frame env) (car env))
 (define (up-env env) (cdr env))
 
@@ -147,6 +147,13 @@
 (define (frame-pairs frame) (cdr frame))
 (define (first-pair pairs) (car pairs))
 (define (rest-pairs pairs) (cdr pairs))
+(define (make-frame keys values)
+  (define (iter keys values frame)
+    (if (null? keys)
+        frame
+        (begin (add-frame (car keys) (car values) frame)
+               (iter (cdr keys) (cdr values) frame))))
+  (iter keys values the-empty-frame))
 (define (add-frame key val frame)
   (set-cdr! frame
             (cons (cons key val)
@@ -160,22 +167,55 @@
   (if (empty-env? env)
       (end env)
       (todo env todo end)))
-(define (scan-frame frame todo end)
+(define (scan-frame frame var todo end)
   (define (iter pre-pairs cur-pairs)
-    (let ((pair (first-pair cur-pairs)))
-      (if (
+    (if (null? cur-pairs)
+        (end)
+        (let ((pair (first-pair cur-pairs)))
+          (if (eq? (pair-key pair) var)
+              (todo pre-pairs cur-pairs)
+              (iter (rest-pairs pre-pairs)
+                    (rest-pairs cur-pairs))))))
+  (if (empty-frame? frame)
+      (end)
+      (iter frame (frame-pairs frame))))
 
 (define (lookup-variable exp env)
   (scan-environment env
-                    (lambda (env todo end)
+                    (lambda (env self end)
                       (scan-frame (first-frame env)
+                                  exp
                                   (lambda (pre-pairs cur-pairs)
                                     (pair-value (first-pair cur-pairs)))
                                   (lambda ()
                                     (scan-environment (up-env env)
-                                                      todo
+                                                      self
                                                       end))))
-                    (lambda (env) (error "empty environment --LOOKUP-VARIABLE" env))))
-(define (extend-env env params args) 1)
-(define (definite! var val env) 1)
-(define (set-value! var val env) 1)
+                    (lambda (env) (error "empty environment -- LOOKUP-VARIABLE" env))))
+(define (extend-env env params args)
+  (make-env (make-frame params args)
+                env))
+(define (definite! var val env)
+  (scan-environment env
+                    (lambda (env self end)
+                      (scan-frame (first-frame env)
+                                  var
+                                  (lambda (pre-pairs cur-pairs)
+                                    (set-pair-value! (first-pair cur-pairs) val))
+                                  (lambda ()
+                                    (add-frame var val (first-frame env)))))
+                    (lambda (env) (error "empty environment -- DEFINITE!" env))))
+                    
+(define (set-value! var val env)
+  (scan-environment env
+                    (lambda (env self end)
+                      (scan-frame (first-frame env)
+                                  var
+                                  (lambda (pre-pairs cur-pairs)
+                                    (set-pair-value! (first-pair cur-pairs) val))
+                                  (lambda ()
+                                    (scan-environment (up-env env)
+                                                      self
+                                                      end))))
+                    (lambda (env) (error "empty environment -- SET-VALUE!" env))))
+                                                      
