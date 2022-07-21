@@ -155,27 +155,7 @@
 (define (pair-value pair) (cdr pair))
 (define (set-pair-value! pair new-val) (set-cdr! pair new-val))
 
-
-(define (scan-environment env todo end)
-  (if (empty-env? env)
-      (end env)
-      (todo env todo end)))
-(define (scan-frame frame todo end)
-  (define (iter pre-pairs cur-pairs)
-    (let ((pair (first-pair cur-pairs)))
-      (if (
-
-(define (lookup-variable exp env)
-  (scan-environment env
-                    (lambda (env todo end)
-                      (scan-frame (first-frame env)
-                                  (lambda (pre-pairs cur-pairs)
-                                    (pair-value (first-pair cur-pairs)))
-                                  (lambda ()
-                                    (scan-environment (up-env env)
-                                                      todo
-                                                      end))))
-                    (lambda (env) (error "empty environment --LOOKUP-VARIABLE" env))))
+(define (lookup-variable exp env) 1)
 (define (extend-env env params args) 1)
 (define (definite! var val env) 1)
 (define (set-value! var val env) 1)
