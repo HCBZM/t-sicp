@@ -1,8 +1,8 @@
 #lang sicp
 (define (eval exp env)
   (cond ((self-evaluating? exp) exp)
-        ((quote? exp) (text-of-quote exp))
         ((variable? exp) (lookup-variable exp env))
+        ((quote? exp) (text-of-quote exp))
         ((definite? exp) (eval-definition exp env))
         ((assignment? exp) (eval-assignment exp env))
         ((if? exp) (eval-if exp env))
@@ -30,7 +30,7 @@
 (define (exp-tag exp)
   (if (pair? exp)
       (car exp)
-      (error "unkown expression -- EXP-TAG" exp)))
+      false))
 (define expression-tag exp-tag)
 
 (define (self-evaluating? exp)
@@ -45,8 +45,15 @@
 
 (define (definite? exp)
   (eq? (expression-tag exp) 'define))
-(define (definition-variable exp) (cadr exp))
-(define (definition-value exp) (caddr exp))
+(define (definition-variable exp)
+  (if (pair? (cadr exp))
+      (caadr exp)
+      (cadr exp)))
+(define (definition-value exp)
+  (if (pair? (cadr exp))
+      (make-lambda (cdadr exp)
+                   (cddr exp))
+      (caddr exp)))
 
 (define (assignment? exp) (eq? (expression-tag exp) 'set!))
 (define (assignment-variable exp) (cadr exp))
@@ -74,6 +81,8 @@
 (define (lambda? exp) (eq? 'lambda (expression-tag exp)))
 (define (lambda-params exp) (cadr exp))
 (define (lambda-body exp) (cddr exp))
+(define (make-lambda params body)
+  (cons 'lambda (cons params body)))
 
 (define (make-procedure body params env)
   (list 'procedure body params env))
@@ -85,8 +94,11 @@
 (define (operator exp) (car exp))
 (define (operands exp) (cdr exp))
 
-(define (primitive-procedure? exp) 1)
-(define (apply-primitive-procedure proc operands) 1)
+(define (primitive-procedure? exp) (eq? 'primitive-procedure (expression-tag exp)))
+(define (make-primitive-procedure proc) (cons 'primitive-procedure proc))
+(define (primitive-procedure exp) (cdr exp))
+(define (apply-primitive-procedure proc operands)
+  (apply (primitive-procedure proc) operands))
 
 (define (compound-procedure? exp) (eq? 'procedure (expression-tag exp)))
 ;; eval-???
@@ -191,7 +203,7 @@
                                     (scan-environment (up-env env)
                                                       self
                                                       end))))
-                    (lambda (env) (error "empty environment -- LOOKUP-VARIABLE" env))))
+                    (lambda (env) (error "no found variable -- LOOKUP-VARIABLE" env 'variable: exp))))
 (define (extend-env env params args)
   (make-env (make-frame params args)
                 env))
@@ -218,4 +230,47 @@
                                                       self
                                                       end))))
                     (lambda (env) (error "empty environment -- SET-VALUE!" env))))
-                                                      
+
+;; initialize global environment,
+
+(define global-environment
+  (make-env the-empty-frame the-empty-env))
+((lambda ()
+   (let ((frame (first-frame global-environment)))
+     (define (b-p key val)
+       (add-frame key (make-primitive-procedure val) frame))
+     (define (b-v key val)
+       (add-frame key val frame))
+
+     (b-p 'car car)
+     (b-p 'cdr cdr)
+     (b-p 'cons cons)
+     (b-p '+ +)
+     (b-p '- -)
+     (b-p '* *)
+     (b-p '/ /)
+     (b-p 'apply apply)
+     (b-p 'map map)
+     (b-p 'null? null?)
+     (b-p 'eq? eq?)
+     (b-p 'list list)
+     
+     (b-v 'false false)
+     (b-v 'true true)
+     )))
+
+
+(define (driver-loop)
+  (let ((input (read)))
+    (let ((output (eval input global-environment)))
+      (user-print output)))
+  (driver-loop))
+
+(define (user-print object)
+  (if (compound-procedure? object)
+      (display (list 'compound-procedure
+                     (procedure-body object)
+                     (procedure-params object)
+                     '<procedure-env>))
+      (display object))
+  (newline))
