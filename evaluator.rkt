@@ -257,6 +257,7 @@
      
      (b-v 'false false)
      (b-v 'true true)
+     (b-v 'nil nil)
      )))
 
 
@@ -274,3 +275,54 @@
                      '<procedure-env>))
       (display object))
   (newline))
+
+(define (print o) (display o) (newline))
+
+
+
+;; temporary table
+(define (make-table)
+  (define table '(table))
+  (define (empty? table)
+    (or (null? table) (and (eq? (car table) 'table) (null? (cdr table)))))
+  (define (data table) (car table))
+  (define (key data) (car data))
+  (define (value data) (cdr data))
+  (define (set-value! data new-value) (set-cdr! data new-value))
+  (define (make-data key value) (list (cons key value)))
+  (define (next table) (cdr table))
+
+  (define (add-table key value)
+    (set-cdr! table (make-data key value)))
+  (define (lookup key compare todo notdo)
+    (define (iter pre cur)
+      (cond ((empty? cur)
+             (notdo pre cur))
+            ((compare key (key (data cur)))
+             (todo pre cur))
+            (else
+             (iter (next pre) (next cur)))))
+    (iter table (next table)))
+           
+  (define (get key)
+    (lookup key
+            eq?
+            (lambda (pre cur)
+              (value (data cur))
+              true)
+            (lambda (pre cur)
+              false)))
+  (define (set! key new-value)
+    (if (empty? table)
+        (add-table key value)
+        (lookup key
+                eq?
+                (lambda (pre cur)
+                  (set-value! (data cur) new-value))
+                (lambda (pre cur)
+                  (set-value! (data pre) (make-data key value))))))
+  (define (dispatch m)
+    (cond ((eq? m 'get) get)
+          ((eq? m 'set) set!)
+          (else (error "unknown operation! -- MAKE-TABLE" m))))
+  dispatch)
