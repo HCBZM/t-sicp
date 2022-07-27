@@ -86,6 +86,7 @@
 (define (application? exp) (pair? exp))
 (define (operator exp) (car exp))
 (define (operands exp) (cdr exp))
+(define (make-application operator operands) (cons operator operands))
 
 (define (primitive-procedure? exp) (eq? 'primitive-procedure (expression-tag exp)))
 (define (make-primitive-procedure proc) (cons 'primitive-procedure proc))
@@ -99,6 +100,8 @@
   (eval (or->if exp) env))
 (define (eval-and exp env)
   (eval (and->if exp) env))
+(define (last-pair? exp)
+  (and (pair? exp) (null? (cdr exp))))
 (define (and->if exp)
   (define (->if exps)
     (if (last-pair? exps)
@@ -112,7 +115,14 @@
         (->if and-actions))))
 (define (or->if exp)
   (define (->if exps)
-    
+    (if (null? exps)
+        'false
+        (make-application (make-lambda '(e)
+                                       (list (make-if 'e
+                                                'e
+                                                (->if (cdr exps)))))
+                          (list (car exps)))))
+  (->if (cdr exp)))
 
 
 (define (eval-quote exp env)
