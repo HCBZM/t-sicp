@@ -99,14 +99,22 @@
 (define (compound-procedure? exp) (eq? 'procedure (expression-tag exp)))
 ;; eval-???
 (define (eval-or exp env)
-  (define (iter exps)
+  (eval (or->if exp) env))
+(define (or->if exp)
+  (define (->if exps)
     (if (null? exps)
-        false
-        (let ((e (eval (car exps) env)))
-          (if e
-              e
-              (iter (cdr exps))))))
-  (iter (cdr exp)))
+        'false
+        (make-application
+         (make-lambda '(v alternative)
+                      (list
+                       (make-if 'v
+                                'v
+                                (make-application 'alternative nil))))
+         (list (car exps)
+               (make-lambda '()
+                            (list (->if (cdr exps))))))))
+  (->if (cdr exp)))
+          
 (define (eval-and exp env)
   (define (iter exps)
     (if (last-pair? exps)
@@ -172,9 +180,9 @@
                (sequence->exp (clause-actions clause)))
               ((cond-apply-clause? clause)
                (make-application
-                (make-lambda '(pred sequence alternetive)
+                (make-lambda '(pred consequence alternetive)
                              (list (make-if 'pred
-                                            (list (make-application 'sequence nil) 'pred)
+                                            (list (make-application 'consequence nil) 'pred)
                                                   (make-application 'alternetive nil))))
                 (list (clause-predicate clause)
                       (make-lambda '()
@@ -195,6 +203,7 @@
 (define (up-env env) (cdr env))
 
 (define the-empty-frame (list 'frame))
+(define (make-empty-frame) (list 'frame))
 (define (empty-frame? frame)
   (or (null? frame) (and (eq? (car frame) 'frame) (null? (cdr frame)))))
 (define (frame-pairs frame) (cdr frame))
@@ -206,7 +215,7 @@
         frame
         (begin (add-frame (car keys) (car values) frame)
                (iter (cdr keys) (cdr values) frame))))
-  (iter keys values the-empty-frame))
+  (iter keys values (make-empty-frame)))
 (define (add-frame key val frame)
   (set-cdr! frame
             (cons (cons key val)
@@ -247,7 +256,7 @@
                     (lambda (env) (error "no found variable -- LOOKUP-VARIABLE" env 'variable: exp))))
 (define (extend-env env params args)
   (make-env (make-frame params args)
-                env))
+            env))
 (define (definite! var val env)
   (scan-environment env
                     (lambda (env self end)
