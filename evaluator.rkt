@@ -66,6 +66,8 @@
 (define (cond? exp) (eq? (expression-tag exp) 'cond))
 (define (cond-clauses exp) (cdr exp))
 (define (cond-else-clause? clause) (eq? 'else (car clause)))
+(define (cond-apply-clause? clause) (eq? '=> (cadr clause)))
+(define (clause-procedure clause) (caddr clause))
 (define (first-clause clauses) (car clauses))
 (define (rest-clauses clauses) (cdr clauses))
 (define (clause-predicate clause) (car clause))
@@ -97,32 +99,28 @@
 (define (compound-procedure? exp) (eq? 'procedure (expression-tag exp)))
 ;; eval-???
 (define (eval-or exp env)
-  (eval (or->if exp) env))
+  (define (iter exps)
+    (if (null? exps)
+        false
+        (let ((e (eval (car exps) env)))
+          (if e
+              e
+              (iter (cdr exps))))))
+  (iter (cdr exp)))
 (define (eval-and exp env)
-  (eval (and->if exp) env))
+  (define (iter exps)
+    (if (last-pair? exps)
+        (eval (car exps) env)
+        (let ((e (eval (car exps) env)))
+          (if e
+              (iter (cdr exps))
+              false))))
+  (let ((exps (cdr exp)))
+    (if (null? exps)
+        true
+        (iter exps))))
 (define (last-pair? exp)
   (and (pair? exp) (null? (cdr exp))))
-(define (and->if exp)
-  (define (->if exps)
-    (if (last-pair? exps)
-        (car exps)
-        (make-if (car exps)
-                 (->if (cdr exps))
-                 'false)))
-  (let ((and-actions (cdr exp)))
-    (if (null? and-actions)
-        'true
-        (->if and-actions))))
-(define (or->if exp)
-  (define (->if exps)
-    (if (null? exps)
-        'false
-        (make-application (make-lambda '(e)
-                                       (list (make-if 'e
-                                                'e
-                                                (->if (cdr exps)))))
-                          (list (car exps)))))
-  (->if (cdr exp)))
 
 
 (define (eval-quote exp env)
@@ -170,11 +168,23 @@
   (if (null? clauses)
       false
       (let ((clause (first-clause clauses)))
-        (if (cond-else-clause? clause)
-            (sequence->exp (clause-actions clause))
-            (make-if (clause-predicate clause)
-                     (sequence->exp (clause-actions clause))
-                     (clauses->if (rest-clauses clauses)))))))
+        (cond ((cond-else-clause? clause)
+               (sequence->exp (clause-actions clause)))
+              ((cond-apply-clause? clause)
+               (make-application
+                (make-lambda '(pred sequence alternetive)
+                             (list (make-if 'pred
+                                            (list (make-application 'sequence nil) 'pred)
+                                                  (make-application 'alternetive nil))))
+                (list (clause-predicate clause)
+                      (make-lambda '()
+                                   (list (clause-procedure clause)))
+                      (make-lambda '()
+                                   (list (clauses->if (rest-clauses clauses)))))))
+              (else
+               (make-if (clause-predicate clause)
+                        (sequence->exp (clause-actions clause))
+                        (clauses->if (rest-clauses clauses))))))))
 
 
 ;; env , frame  representation
