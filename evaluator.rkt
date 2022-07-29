@@ -97,6 +97,11 @@
   (apply (primitive-procedure proc) operands))
 
 (define (compound-procedure? exp) (eq? 'procedure (expression-tag exp)))
+
+(define (let-binds exp) (cadr exp))
+(define (let-body exp) (cddr exp))
+(define (make-let binds body)
+  (cons 'let (cons binds body)))
 ;; eval-???
 (define (eval-or exp env)
   (eval (or->if exp) env))
@@ -169,7 +174,31 @@
 
 (define (sequence->exp se)
   (make-begin se))
+
+(define (eval-let exp env)
+  (eval (let->combination exp) env))
+
+(define (eval-let* exp env)
+  (eval (let*->nested-lets exp) env))
 ;; derivative syntax
+(define (let*->nested-lets exp)
+  (let ((binds (let-binds exp))
+        (body (let-body exp)))
+    (define (iter binds)
+      (if (null? binds)
+          (make-let nil body)
+          (make-let (list (car binds))
+                    (list (iter (cdr binds))))))
+    (iter binds)))
+
+(define (let->combination exp)
+  (let ((binds (let-binds exp))
+        (body (let-body exp)))
+    (make-application
+     (make-lambda (map car binds)
+                  body)
+     (map cadr binds))))
+
 (define (cond->if exp)
   (clauses->if (cond-clauses exp)))
 (define (clauses->if clauses)
@@ -391,4 +420,6 @@
    (add! 'begin eval-begin)
    (add! 'or eval-or)
    (add! 'and eval-and)
+   (add! 'let eval-let)
+   (add! 'let* eval-let*)
    ))
