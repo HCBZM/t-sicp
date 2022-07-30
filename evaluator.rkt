@@ -47,6 +47,8 @@
       (make-lambda (cdadr exp)
                    (cddr exp))
       (caddr exp)))
+(define (make-define var body)
+  (cons 'define (cons var body)))
 
 (define (assignment? exp) (eq? (expression-tag exp) 'set!))
 (define (assignment-variable exp) (cadr exp))
@@ -102,6 +104,15 @@
 (define (let-body exp) (cddr exp))
 (define (make-let binds body)
   (cons 'let (cons binds body)))
+(define (naming-let? exp) (variable? (cadr exp)))
+(define (naming-let-variable exp) (cadr exp))
+(define (naming-let-binds exp) (caddr exp))
+(define (naming-let-body exp) (cdddr exp))
+(define (variables-of-binds binds) (map car binds))
+(define (values-of-binds binds) (map cadr binds))
+
+(define (while-predicate exp) (cadr exp))
+(define (while-body exp) (cddr exp))
 ;; eval-???
 (define (eval-or exp env)
   (eval (or->if exp) env))
@@ -180,7 +191,35 @@
 
 (define (eval-let* exp env)
   (eval (let*->nested-lets exp) env))
+
+(define (eval-while exp env)
+  (eval (while->combination exp) env))
+
+(define (eval-for exp) nil)
 ;; derivative syntax
+(define (while->combination exp)
+  (let ((predicate-exp (while-predicate exp))
+        (body-exps (while-body exp)))
+    (make-application
+     (make-lambda (list 'pred-proc 'body-proc)
+                  (list
+                   (make-define '(f)
+                                (list
+                                 (make-if (make-application 'pred-proc
+                                                                 nil)
+                                               (make-begin (list
+                                                            (make-application 'body-proc
+                                                                              nil)
+                                                            (make-application 'f nil)))
+                                               ''done)))
+                   (make-application 'f nil)))
+     (list (make-lambda '()
+                        (list predicate-exp))
+           (make-lambda '()
+                        body-exps)))))
+                                                     
+                                          
+
 (define (let*->nested-lets exp)
   (let ((binds (let-binds exp))
         (body (let-body exp)))
@@ -192,12 +231,23 @@
     (iter binds)))
 
 (define (let->combination exp)
-  (let ((binds (let-binds exp))
-        (body (let-body exp)))
-    (make-application
-     (make-lambda (map car binds)
-                  body)
-     (map cadr binds))))
+  (if (naming-let? exp)
+      (let ((var (naming-let-variable exp))
+            (binds (naming-let-binds exp))
+            (body (naming-let-body exp)))
+        (make-application
+         (make-lambda '()
+                      (list (make-define (cons var (variables-of-binds binds))
+                                         body)
+                            (make-application var
+                                              (values-of-binds binds))))
+         nil))
+      (let ((binds (let-binds exp))
+            (body (let-body exp)))
+        (make-application
+         (make-lambda (map car binds)
+                      body)
+         (map cadr binds)))))
 
 (define (cond->if exp)
   (clauses->if (cond-clauses exp)))
@@ -328,11 +378,15 @@
      (b-p '- -)
      (b-p '* *)
      (b-p '/ /)
+     (b-p '= =)
      (b-p 'apply apply)
      (b-p 'map map)
      (b-p 'null? null?)
      (b-p 'eq? eq?)
      (b-p 'list list)
+     (b-p '< <)
+     (b-p '> >)
+     (b-p 'display display)
      
      (b-v 'false false)
      (b-v 'true true)
@@ -422,4 +476,6 @@
    (add! 'and eval-and)
    (add! 'let eval-let)
    (add! 'let* eval-let*)
+   (add! 'while eval-while)
+   (add! 'for eval-for)
    ))
