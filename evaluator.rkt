@@ -113,6 +113,11 @@
 
 (define (while-predicate exp) (cadr exp))
 (define (while-body exp) (cddr exp))
+
+(define (for-init-binds exp) (cadr exp))
+(define (for-predicate exp) (caddr exp))
+(define (for-ends exp) (cadddr exp))
+(define (for-body exp) (cddddr exp))
 ;; eval-???
 (define (eval-or exp env)
   (eval (or->if exp) env))
@@ -195,8 +200,42 @@
 (define (eval-while exp env)
   (eval (while->combination exp) env))
 
-(define (eval-for exp) nil)
+(define (eval-for exp env)
+  (eval (for->combination exp) env))
 ;; derivative syntax
+(define (for->combination exp)
+  (let ((binds (for-init-binds exp))
+        (predicate-exp (for-predicate exp))
+        (end-exps (for-ends exp))
+        (body-exps (for-body exp)))
+    (make-application
+     (make-lambda
+      (variables-of-binds binds)
+      (list
+       (make-application
+        (make-lambda
+         (list 'pred-proc 'body-proc 'end-proc)
+         (list
+          (make-define
+           '(iter)
+           (list
+            (make-if (make-application 'pred-proc
+                                       nil)
+                     (make-begin
+                      (list
+                       (make-application 'body-proc nil)
+                       (make-application 'end-proc nil)
+                       (make-application 'iter nil)))
+                     ''done)))
+          (make-application 'iter nil)))
+        (list
+         (make-lambda nil (list predicate-exp))
+         (make-lambda nil body-exps)
+         (make-lambda nil end-exps)))))
+     (values-of-binds binds))))
+     
+                  
+
 (define (while->combination exp)
   (let ((predicate-exp (while-predicate exp))
         (body-exps (while-body exp)))
