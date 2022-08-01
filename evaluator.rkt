@@ -118,6 +118,8 @@
 (define (for-predicate exp) (caddr exp))
 (define (for-ends exp) (cadddr exp))
 (define (for-body exp) (cddddr exp))
+
+(define (make-unbound!-var exp) (cadr exp))
 ;; eval-???
 (define (eval-or exp env)
   (eval (or->if exp) env))
@@ -202,6 +204,9 @@
 
 (define (eval-for exp env)
   (eval (for->combination exp) env))
+
+(define (eval-make-unbound! exp env)
+  (unbound! env (make-unbound!-var exp)))
 ;; derivative syntax
 (define (for->combination exp)
   (let ((binds (for-init-binds exp))
@@ -341,6 +346,8 @@
 (define (pair-key pair) (car pair))
 (define (pair-value pair) (cdr pair))
 (define (set-pair-value! pair new-val) (set-cdr! pair new-val))
+(define (delete-next-pair! pairs)
+  (set-cdr! pairs (cddr pairs)))
 
 
 (define (scan-environment env todo end)
@@ -359,6 +366,14 @@
   (if (empty-frame? frame)
       (end)
       (iter frame (frame-pairs frame))))
+
+(define (unbound! env var)
+  (scan-frame (first-frame env)
+              var
+              (lambda (pre-pairs cur-pairs)
+                (delete-next-pair! pre-pairs))
+              (lambda ()
+                (error "no found variable -- UNBOUND!" env 'variable: var))))
 
 (define (lookup-variable exp env)
   (scan-environment env
@@ -517,4 +532,5 @@
    (add! 'let* eval-let*)
    (add! 'while eval-while)
    (add! 'for eval-for)
+   (add! 'make-unbound! eval-make-unbound!)
    ))
