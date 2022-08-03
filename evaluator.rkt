@@ -53,6 +53,7 @@
 (define (assignment? exp) (eq? (expression-tag exp) 'set!))
 (define (assignment-variable exp) (cadr exp))
 (define (assignment-value exp) (caddr exp))
+(define (make-assignment var val) (list 'set! var val))
 
 (define (if? exp) (eq? (expression-tag exp) 'if))
 (define (if-predicate exp) (cadr exp))
@@ -82,7 +83,7 @@
   (cons 'lambda (cons params body)))
 
 (define (make-procedure body params env)
-  (list 'procedure body params env))
+  (list 'procedure (scan-out-defines body) params env))
 (define (procedure-body proc) (cadr proc))
 (define (procedure-params proc) (caddr proc))
 (define (procedure-env proc) (cadddr proc))
@@ -104,6 +105,7 @@
 (define (let-body exp) (cddr exp))
 (define (make-let binds body)
   (cons 'let (cons binds body)))
+(define (make-bind var val) (list var val))
 (define (naming-let? exp) (variable? (cadr exp)))
 (define (naming-let-variable exp) (cadr exp))
 (define (naming-let-binds exp) (caddr exp))
@@ -208,6 +210,21 @@
 (define (eval-make-unbound! exp env)
   (unbound! env (make-unbound!-var exp)))
 ;; derivative syntax
+(define (scan-out-defines body)
+  (let ((binds-data (make-list)))
+    (let ((transformed-body (map (lambda (exp)
+                       (if (definite? exp)
+                           (let ((var (definition-variable exp))
+                                 (val (definition-value exp)))
+                             ((binds-data 'add-list!) (make-bind var ''*unassigned*))
+                             (make-assignment var val))
+                           exp))
+                     body)))
+      (if (null? (binds-data 'data))
+          body
+          (list (make-let (binds-data 'data) transformed-body))))))
+  
+
 (define (for->combination exp)
   (let ((binds (for-init-binds exp))
         (predicate-exp (for-predicate exp))
@@ -381,7 +398,10 @@
                       (scan-frame (first-frame env)
                                   exp
                                   (lambda (pre-pairs cur-pairs)
-                                    (pair-value (first-pair cur-pairs)))
+                                    (let ((val (pair-value (first-pair cur-pairs))))
+                                      (if (eq? val '*unassigned*)
+                                          (error "unassigned -- LOOKUP-VARIABLE" exp)
+                                          val)))
                                   (lambda ()
                                     (scan-environment (up-env env)
                                                       self
@@ -514,7 +534,19 @@
           ((eq? m 'table) table)
           (else (error "unknown operation! -- MAKE-TABLE" m))))
   dispatch)
-
+;; temporary list
+(define (make-list)
+  (let ((data (list 'head)))
+    (define tail data)
+    (define (add-list! value)
+      (set-cdr! tail (cons value nil))
+      (set! tail (cdr tail)))
+    (define (dispatch m)
+      (cond ((eq? m 'data) (cdr data))
+            ((eq? m 'add-list!) add-list!)
+            (else (error "unknown operation! -- MAKE-LIST" m))))
+    dispatch))
+  
 ;; instrall
 (define eval-driver-table (make-table))
 ((lambda ()
