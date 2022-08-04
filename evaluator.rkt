@@ -216,13 +216,13 @@
                        (if (definite? exp)
                            (let ((var (definition-variable exp))
                                  (val (definition-value exp)))
-                             ((binds-data 'add-list!) (make-bind var ''*unassigned*))
+                             ((binds-data 'add-list!) (make-define var (list ''*unassigned*)))
                              (make-assignment var val))
                            exp))
                      body)))
       (if (null? (binds-data 'data))
           body
-          (list (make-let (binds-data 'data) transformed-body))))))
+          (append (binds-data 'data) transformed-body)))))
   
 
 (define (for->combination exp)

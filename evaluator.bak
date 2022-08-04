@@ -47,10 +47,13 @@
       (make-lambda (cdadr exp)
                    (cddr exp))
       (caddr exp)))
+(define (make-define var body)
+  (cons 'define (cons var body)))
 
 (define (assignment? exp) (eq? (expression-tag exp) 'set!))
 (define (assignment-variable exp) (cadr exp))
 (define (assignment-value exp) (caddr exp))
+(define (make-assignment var val) (list 'set! var val))
 
 (define (if? exp) (eq? (expression-tag exp) 'if))
 (define (if-predicate exp) (cadr exp))
@@ -66,6 +69,8 @@
 (define (cond? exp) (eq? (expression-tag exp) 'cond))
 (define (cond-clauses exp) (cdr exp))
 (define (cond-else-clause? clause) (eq? 'else (car clause)))
+(define (cond-apply-clause? clause) (eq? '=> (cadr clause)))
+(define (clause-procedure clause) (caddr clause))
 (define (first-clause clauses) (car clauses))
 (define (rest-clauses clauses) (cdr clauses))
 (define (clause-predicate clause) (car clause))
@@ -78,7 +83,7 @@
   (cons 'lambda (cons params body)))
 
 (define (make-procedure body params env)
-  (list 'procedure body params env))
+  (list 'procedure (scan-out-defines body) params env))
 (define (procedure-body proc) (cadr proc))
 (define (procedure-params proc) (caddr proc))
 (define (procedure-env proc) (cadddr proc))
@@ -95,34 +100,60 @@
   (apply (primitive-procedure proc) operands))
 
 (define (compound-procedure? exp) (eq? 'procedure (expression-tag exp)))
+
+(define (let-binds exp) (cadr exp))
+(define (let-body exp) (cddr exp))
+(define (make-let binds body)
+  (cons 'let (cons binds body)))
+(define (make-bind var val) (list var val))
+(define (naming-let? exp) (variable? (cadr exp)))
+(define (naming-let-variable exp) (cadr exp))
+(define (naming-let-binds exp) (caddr exp))
+(define (naming-let-body exp) (cdddr exp))
+(define (variables-of-binds binds) (map car binds))
+(define (values-of-binds binds) (map cadr binds))
+
+(define (while-predicate exp) (cadr exp))
+(define (while-body exp) (cddr exp))
+
+(define (for-init-binds exp) (cadr exp))
+(define (for-predicate exp) (caddr exp))
+(define (for-ends exp) (cadddr exp))
+(define (for-body exp) (cddddr exp))
+
+(define (make-unbound!-var exp) (cadr exp))
 ;; eval-???
 (define (eval-or exp env)
   (eval (or->if exp) env))
-(define (eval-and exp env)
-  (eval (and->if exp) env))
-(define (last-pair? exp)
-  (and (pair? exp) (null? (cdr exp))))
-(define (and->if exp)
-  (define (->if exps)
-    (if (last-pair? exps)
-        (car exps)
-        (make-if (car exps)
-                 (->if (cdr exps))
-                 'false)))
-  (let ((and-actions (cdr exp)))
-    (if (null? and-actions)
-        'true
-        (->if and-actions))))
 (define (or->if exp)
   (define (->if exps)
     (if (null? exps)
         'false
-        (make-application (make-lambda '(e)
-                                       (list (make-if 'e
-                                                'e
-                                                (->if (cdr exps)))))
-                          (list (car exps)))))
+        (make-application
+         (make-lambda '(v alternative)
+                      (list
+                       (make-if 'v
+                                'v
+                                (make-application 'alternative nil))))
+         (list (car exps)
+               (make-lambda '()
+                            (list (->if (cdr exps))))))))
   (->if (cdr exp)))
+          
+(define (eval-and exp env)
+  (define (iter exps)
+    (if (last-pair? exps)
+        (eval (car exps) env)
+        (let ((e (eval (car exps) env)))
+          (if e
+              (iter (cdr exps))
+              false))))
+  (let ((exps (cdr exp)))
+    (if (null? exps)
+        true
+        (iter exps))))
+(define (last-pair? exp)
+  (and (pair? exp) (null? (cdr exp))))
 
 
 (define (eval-quote exp env)
@@ -163,18 +194,145 @@
 
 (define (sequence->exp se)
   (make-begin se))
+
+(define (eval-let exp env)
+  (eval (let->combination exp) env))
+
+(define (eval-let* exp env)
+  (eval (let*->nested-lets exp) env))
+
+(define (eval-while exp env)
+  (eval (while->combination exp) env))
+
+(define (eval-for exp env)
+  (eval (for->combination exp) env))
+
+(define (eval-make-unbound! exp env)
+  (unbound! env (make-unbound!-var exp)))
 ;; derivative syntax
+(define (scan-out-defines body)
+  (let ((binds-data (make-list)))
+    (let ((transformed-body (map (lambda (exp)
+                       (if (definite? exp)
+                           (let ((var (definition-variable exp))
+                                 (val (definition-value exp)))
+                             ((binds-data 'add-list!) (make-bind var ''*unassigned*))
+                             (make-assignment var val))
+                           exp))
+                     body)))
+      (if (null? (binds-data 'data))
+          body
+          (list (make-let (binds-data 'data) transformed-body))))))
+  
+
+(define (for->combination exp)
+  (let ((binds (for-init-binds exp))
+        (predicate-exp (for-predicate exp))
+        (end-exps (for-ends exp))
+        (body-exps (for-body exp)))
+    (make-application
+     (make-lambda
+      (variables-of-binds binds)
+      (list
+       (make-application
+        (make-lambda
+         (list 'pred-proc 'body-proc 'end-proc)
+         (list
+          (make-define
+           '(iter)
+           (list
+            (make-if (make-application 'pred-proc
+                                       nil)
+                     (make-begin
+                      (list
+                       (make-application 'body-proc nil)
+                       (make-application 'end-proc nil)
+                       (make-application 'iter nil)))
+                     ''done)))
+          (make-application 'iter nil)))
+        (list
+         (make-lambda nil (list predicate-exp))
+         (make-lambda nil body-exps)
+         (make-lambda nil end-exps)))))
+     (values-of-binds binds))))
+     
+                  
+
+(define (while->combination exp)
+  (let ((predicate-exp (while-predicate exp))
+        (body-exps (while-body exp)))
+    (make-application
+     (make-lambda (list 'pred-proc 'body-proc)
+                  (list
+                   (make-define '(f)
+                                (list
+                                 (make-if (make-application 'pred-proc
+                                                                 nil)
+                                               (make-begin (list
+                                                            (make-application 'body-proc
+                                                                              nil)
+                                                            (make-application 'f nil)))
+                                               ''done)))
+                   (make-application 'f nil)))
+     (list (make-lambda '()
+                        (list predicate-exp))
+           (make-lambda '()
+                        body-exps)))))
+                                                     
+                                          
+
+(define (let*->nested-lets exp)
+  (let ((binds (let-binds exp))
+        (body (let-body exp)))
+    (define (iter binds)
+      (if (null? binds)
+          (make-let nil body)
+          (make-let (list (car binds))
+                    (list (iter (cdr binds))))))
+    (iter binds)))
+
+(define (let->combination exp)
+  (if (naming-let? exp)
+      (let ((var (naming-let-variable exp))
+            (binds (naming-let-binds exp))
+            (body (naming-let-body exp)))
+        (make-application
+         (make-lambda '()
+                      (list (make-define (cons var (variables-of-binds binds))
+                                         body)
+                            (make-application var
+                                              (values-of-binds binds))))
+         nil))
+      (let ((binds (let-binds exp))
+            (body (let-body exp)))
+        (make-application
+         (make-lambda (map car binds)
+                      body)
+         (map cadr binds)))))
+
 (define (cond->if exp)
   (clauses->if (cond-clauses exp)))
 (define (clauses->if clauses)
   (if (null? clauses)
       false
       (let ((clause (first-clause clauses)))
-        (if (cond-else-clause? clause)
-            (sequence->exp (clause-actions clause))
-            (make-if (clause-predicate clause)
-                     (sequence->exp (clause-actions clause))
-                     (clauses->if (rest-clauses clauses)))))))
+        (cond ((cond-else-clause? clause)
+               (sequence->exp (clause-actions clause)))
+              ((cond-apply-clause? clause)
+               (make-application
+                (make-lambda '(pred consequence alternetive)
+                             (list (make-if 'pred
+                                            (list (make-application 'consequence nil) 'pred)
+                                                  (make-application 'alternetive nil))))
+                (list (clause-predicate clause)
+                      (make-lambda '()
+                                   (list (clause-procedure clause)))
+                      (make-lambda '()
+                                   (list (clauses->if (rest-clauses clauses)))))))
+              (else
+               (make-if (clause-predicate clause)
+                        (sequence->exp (clause-actions clause))
+                        (clauses->if (rest-clauses clauses))))))))
 
 
 ;; env , frame  representation
@@ -185,6 +343,7 @@
 (define (up-env env) (cdr env))
 
 (define the-empty-frame (list 'frame))
+(define (make-empty-frame) (list 'frame))
 (define (empty-frame? frame)
   (or (null? frame) (and (eq? (car frame) 'frame) (null? (cdr frame)))))
 (define (frame-pairs frame) (cdr frame))
@@ -196,7 +355,7 @@
         frame
         (begin (add-frame (car keys) (car values) frame)
                (iter (cdr keys) (cdr values) frame))))
-  (iter keys values the-empty-frame))
+  (iter keys values (make-empty-frame)))
 (define (add-frame key val frame)
   (set-cdr! frame
             (cons (cons key val)
@@ -204,6 +363,8 @@
 (define (pair-key pair) (car pair))
 (define (pair-value pair) (cdr pair))
 (define (set-pair-value! pair new-val) (set-cdr! pair new-val))
+(define (delete-next-pair! pairs)
+  (set-cdr! pairs (cddr pairs)))
 
 
 (define (scan-environment env todo end)
@@ -223,13 +384,24 @@
       (end)
       (iter frame (frame-pairs frame))))
 
+(define (unbound! env var)
+  (scan-frame (first-frame env)
+              var
+              (lambda (pre-pairs cur-pairs)
+                (delete-next-pair! pre-pairs))
+              (lambda ()
+                (error "no found variable -- UNBOUND!" env 'variable: var))))
+
 (define (lookup-variable exp env)
   (scan-environment env
                     (lambda (env self end)
                       (scan-frame (first-frame env)
                                   exp
                                   (lambda (pre-pairs cur-pairs)
-                                    (pair-value (first-pair cur-pairs)))
+                                    (let ((val (pair-value (first-pair cur-pairs))))
+                                      (if (eq? val '*unassigned*)
+                                          (error "unassigned -- LOOKUP-VARIABLE" exp)
+                                          val)))
                                   (lambda ()
                                     (scan-environment (up-env env)
                                                       self
@@ -237,7 +409,7 @@
                     (lambda (env) (error "no found variable -- LOOKUP-VARIABLE" env 'variable: exp))))
 (define (extend-env env params args)
   (make-env (make-frame params args)
-                env))
+            env))
 (define (definite! var val env)
   (scan-environment env
                     (lambda (env self end)
@@ -280,11 +452,15 @@
      (b-p '- -)
      (b-p '* *)
      (b-p '/ /)
+     (b-p '= =)
      (b-p 'apply apply)
      (b-p 'map map)
      (b-p 'null? null?)
      (b-p 'eq? eq?)
      (b-p 'list list)
+     (b-p '< <)
+     (b-p '> >)
+     (b-p 'display display)
      
      (b-v 'false false)
      (b-v 'true true)
@@ -358,7 +534,19 @@
           ((eq? m 'table) table)
           (else (error "unknown operation! -- MAKE-TABLE" m))))
   dispatch)
-
+;; temporary list
+(define (make-list)
+  (let ((data (list 'head)))
+    (define tail data)
+    (define (add-list! value)
+      (set-cdr! tail (cons value nil))
+      (set! tail (cdr tail)))
+    (define (dispatch m)
+      (cond ((eq? m 'data) (cdr data))
+            ((eq? m 'add-list!) add-list!)
+            (else (error "unknown operation! -- MAKE-LIST" m))))
+    dispatch))
+  
 ;; instrall
 (define eval-driver-table (make-table))
 ((lambda ()
@@ -372,4 +560,9 @@
    (add! 'begin eval-begin)
    (add! 'or eval-or)
    (add! 'and eval-and)
+   (add! 'let eval-let)
+   (add! 'let* eval-let*)
+   (add! 'while eval-while)
+   (add! 'for eval-for)
+   (add! 'make-unbound! eval-make-unbound!)
    ))
