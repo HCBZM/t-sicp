@@ -122,6 +122,11 @@
 (define (for-body exp) (cddddr exp))
 
 (define (make-unbound!-var exp) (cadr exp))
+
+(define (make-delay exp) (list 'delay exp))
+(define (delay? exp) (eq? (car exp) 'delay))
+(define (delay-exp exp) (cadr exp))
+;; syntax end 
 ;; eval-???
 (define (eval-or exp env)
   (eval (or->if exp) env))
@@ -209,6 +214,11 @@
 
 (define (eval-make-unbound! exp env)
   (unbound! env (make-unbound!-var exp)))
+
+(define (eval-delay exp env)
+  (make-env-delay (delay-exp exp) env))
+;; eval end;
+
 ;; derivative syntax
 (define (scan-out-defines body)
   (let ((binds-data (make-list)))
@@ -216,8 +226,8 @@
                        (if (definite? exp)
                            (let ((var (definition-variable exp))
                                  (val (definition-value exp)))
-                             ((binds-data 'add-list!) (make-define var (list ''*unassigned*)))
-                             (make-assignment var val))
+                             ((binds-data 'add-list!) (make-define var (list (make-delay val))))
+                             (make-assignment var var))
                            exp))
                      body)))
       (if (null? (binds-data 'data))
@@ -334,8 +344,14 @@
                         (sequence->exp (clause-actions clause))
                         (clauses->if (rest-clauses clauses))))))))
 
+;;derivetive end
 
 ;; env , frame  representation
+(define (env-delay? exp) (and (pair? exp) (eq? (car exp) 'env-delay)))
+(define (env-delay-exp exp) (cadr exp))
+(define (env-delay-env exp) (caddr exp))
+(define (make-env-delay exp env) (list 'env-delay exp env))
+
 (define the-empty-env nil)
 (define (empty-env? env) (null? env))
 (define (make-env frame env) (cons frame env))
@@ -399,9 +415,11 @@
                                   exp
                                   (lambda (pre-pairs cur-pairs)
                                     (let ((val (pair-value (first-pair cur-pairs))))
-                                      (if (eq? val '*unassigned*)
-                                          (error "unassigned -- LOOKUP-VARIABLE" exp)
-                                          val)))
+                                      (cond ((eq? val '*unassigned*)
+                                             (error "unassigned -- LOOKUP-VARIABLE" exp))
+                                            ((env-delay? val)
+                                             (eval (env-delay-exp val) (env-delay-env val)))
+                                            (else val))))
                                   (lambda ()
                                     (scan-environment (up-env env)
                                                       self
@@ -447,6 +465,9 @@
 
      (b-p 'car car)
      (b-p 'cdr cdr)
+     (b-p 'cadr cadr)
+     (b-p 'cddr cddr)
+     (b-p 'caddr caddr)
      (b-p 'cons cons)
      (b-p '+ +)
      (b-p '- -)
@@ -565,4 +586,5 @@
    (add! 'while eval-while)
    (add! 'for eval-for)
    (add! 'make-unbound! eval-make-unbound!)
+   (add! 'delay eval-delay)
    ))
