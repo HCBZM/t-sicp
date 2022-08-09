@@ -126,6 +126,10 @@
 (define (make-delay exp) (list 'delay exp))
 (define (delay? exp) (eq? (car exp) 'delay))
 (define (delay-exp exp) (cadr exp))
+
+(define (make-letrec binds body) (cons 'letrec (cons binds body)))
+(define (letrec-binds exp) (cadr exp))
+(define (letrec-body exp) (cddr exp))
 ;; syntax end 
 ;; eval-???
 (define (eval-or exp env)
@@ -217,9 +221,23 @@
 
 (define (eval-delay exp env)
   (make-env-delay (delay-exp exp) env))
+
+(define (eval-letrec exp env)
+  (eval (letrec->let exp) env))
 ;; eval end;
 
 ;; derivative syntax
+(define (letrec->let exp)
+  (let ((binds (map (lambda (bind)
+                      (list (car bind) ''*unassigned*))
+                    (letrec-binds exp)))
+        (assignments (map (lambda (bind)
+                            (make-assignment (car bind) (cadr bind)))
+                          (letrec-binds exp)))
+        (body (letrec-body exp)))
+    (make-let binds
+              (append assignments body))))
+
 (define (scan-out-defines body)
   (let ((binds-data (make-list)))
     (let ((transformed-body (map (lambda (exp)
@@ -587,4 +605,5 @@
    (add! 'for eval-for)
    (add! 'make-unbound! eval-make-unbound!)
    (add! 'delay eval-delay)
+   (add! 'letrec eval-letrec)
    ))
