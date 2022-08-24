@@ -5,20 +5,61 @@
         (else (let ((eval-proc ((eval-driver-table 'get) (car exp))))
                 (cond (eval-proc (eval-proc exp env))
                       ((application? exp)
-                       (apply-process (eval (operator exp) env)
-                                      (list-of-values (operands exp) env)))
+                       (apply-process (actual-value (operator exp) env)
+                                      (operands exp)
+                                      env))
                       (else (error "unkonwn expression! -- EVAL" exp)))))))
 
-(define (apply-process proc operands)
+(define (apply-process proc operands env)
   (if (primitive-procedure? proc)
-      (apply-primitive-procedure proc operands)
+      (apply-primitive-procedure proc (list-of-arg-values operands env))
       (if (compound-procedure? proc)
           (eval-sequence (procedure-body proc)
                          (extend-env (procedure-env proc)
                                      (procedure-params proc)
-                                     operands))
+                                     (list-of-delayed-args operands env)))
           (error "unkonwn proc! -- APPLY-PROCESS" proc))))
 
+
+(define (actual-value exp env)
+  (force-it (eval exp env)))
+
+(define (force-it obj)
+  (cond ((thunk? obj)
+         (let ((res (actual-value (thunk-exp obj) (thunk-env obj))))
+           (set-car! obj 'thunked)
+           (set-car! (cdr obj) res)
+           (set-cdr! (cdr obj) '())
+           res))
+        ((thunked? obj)
+         (thunked-value obj))
+        (else
+         obj)))
+
+(define (thunked? obj)
+  (eq? 'thunked (exp-tag obj)))
+(define (thunked-value obj)
+  (cadr obj))
+
+(define (thunk? obj)
+  (eq? (exp-tag obj) 'thunk))
+(define (delay-it exp env)
+  (list 'thunk exp env))
+(define (thunk-exp obj)
+  (cadr obj))
+(define (thunk-env obj)
+  (caddr obj))
+
+(define (list-of-arg-values exps env)
+  (if (null? exps)
+      '()
+      (cons (actual-value (car exps) env)
+            (list-of-arg-values (cdr exps) env))))
+(define (list-of-delayed-args exps env)
+  (if (null? exps)
+      '()
+      (cons (delay-it (car exps) env)
+            (list-of-delayed-args (cdr exps) env))))
 ;; syntax
 (define (exp-tag exp)
   (if (pair? exp)
@@ -122,6 +163,15 @@
 (define (for-body exp) (cddddr exp))
 
 (define (make-unbound!-var exp) (cadr exp))
+
+(define (make-delay exp) (list 'delay exp))
+(define (delay? exp) (eq? (car exp) 'delay))
+(define (delay-exp exp) (cadr exp))
+
+(define (make-letrec binds body) (cons 'letrec (cons binds body)))
+(define (letrec-binds exp) (cadr exp))
+(define (letrec-body exp) (cddr exp))
+;; syntax end 
 ;; eval-???
 (define (eval-or exp env)
   (eval (or->if exp) env))
@@ -173,7 +223,7 @@
               (eval (assignment-value exp) env)
               env))
 (define (eval-if exp env)
-  (if (eval (if-predicate exp) env)
+  (if (actual-value (if-predicate exp) env)
       (eval (if-consequence exp) env)
       (eval (if-alternative exp) env)))
 
@@ -209,20 +259,39 @@
 
 (define (eval-make-unbound! exp env)
   (unbound! env (make-unbound!-var exp)))
+
+(define (eval-delay exp env)
+  (make-env-delay (delay-exp exp) env))
+
+(define (eval-letrec exp env)
+  (eval (letrec->let exp) env))
+;; eval end;
+
 ;; derivative syntax
+(define (letrec->let exp)
+  (let ((binds (map (lambda (bind)
+                      (list (car bind) ''*unassigned*))
+                    (letrec-binds exp)))
+        (assignments (map (lambda (bind)
+                            (make-assignment (car bind) (cadr bind)))
+                          (letrec-binds exp)))
+        (body (letrec-body exp)))
+    (make-let binds
+              (append assignments body))))
+
 (define (scan-out-defines body)
   (let ((binds-data (make-list)))
     (let ((transformed-body (map (lambda (exp)
                        (if (definite? exp)
                            (let ((var (definition-variable exp))
                                  (val (definition-value exp)))
-                             ((binds-data 'add-list!) (make-bind var ''*unassigned*))
-                             (make-assignment var val))
+                             ((binds-data 'add-list!) (make-define var (list (make-delay val))))
+                             (make-assignment var var))
                            exp))
                      body)))
       (if (null? (binds-data 'data))
           body
-          (list (make-let (binds-data 'data) transformed-body))))))
+          (append (binds-data 'data) transformed-body)))))
   
 
 (define (for->combination exp)
@@ -334,8 +403,14 @@
                         (sequence->exp (clause-actions clause))
                         (clauses->if (rest-clauses clauses))))))))
 
+;;derivetive end
 
 ;; env , frame  representation
+(define (env-delay? exp) (and (pair? exp) (eq? (car exp) 'env-delay)))
+(define (env-delay-exp exp) (cadr exp))
+(define (env-delay-env exp) (caddr exp))
+(define (make-env-delay exp env) (list 'env-delay exp env))
+
 (define the-empty-env nil)
 (define (empty-env? env) (null? env))
 (define (make-env frame env) (cons frame env))
@@ -399,9 +474,11 @@
                                   exp
                                   (lambda (pre-pairs cur-pairs)
                                     (let ((val (pair-value (first-pair cur-pairs))))
-                                      (if (eq? val '*unassigned*)
-                                          (error "unassigned -- LOOKUP-VARIABLE" exp)
-                                          val)))
+                                      (cond ((eq? val '*unassigned*)
+                                             (error "unassigned -- LOOKUP-VARIABLE" exp))
+                                            ((env-delay? val)
+                                             (eval (env-delay-exp val) (env-delay-env val)))
+                                            (else val))))
                                   (lambda ()
                                     (scan-environment (up-env env)
                                                       self
@@ -447,6 +524,9 @@
 
      (b-p 'car car)
      (b-p 'cdr cdr)
+     (b-p 'cadr cadr)
+     (b-p 'cddr cddr)
+     (b-p 'caddr caddr)
      (b-p 'cons cons)
      (b-p '+ +)
      (b-p '- -)
@@ -470,7 +550,7 @@
 
 (define (driver-loop)
   (let ((input (read)))
-    (let ((output (eval input global-environment)))
+    (let ((output (actual-value input global-environment)))
       (user-print output)))
   (driver-loop))
 
@@ -565,4 +645,6 @@
    (add! 'while eval-while)
    (add! 'for eval-for)
    (add! 'make-unbound! eval-make-unbound!)
+   (add! 'delay eval-delay)
+   (add! 'letrec eval-letrec)
    ))
