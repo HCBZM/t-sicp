@@ -83,6 +83,12 @@
 (define (make-if predicate consequence alternative)
   (list 'if predicate consequence alternative))
 
+(define (unless-predicate exp) (cadr exp))
+(define (unless-consequence exp) (caddr exp))
+(define (unless-alternative exp) (cadddr exp))
+(define (make-unless predicate consequence alternative)
+  (list 'unless predicate consequence alternative))
+
 (define (begin? exp) (eq? (expression-tag exp) 'begin))
 (define (begin-actions exp) (cdr exp))
 (define (make-begin exps) (cons 'begin exps))
@@ -224,6 +230,11 @@
           (conse env)
           (alter env)))))
 
+(define (eval-unless exp)
+  (analyze (unless->if exp)))
+
+
+
 (define (eval-begin exp)
   (analyze-sequence (begin-actions exp)))
 
@@ -269,6 +280,11 @@
 ;; eval end;
 
 ;; derivative syntax
+(define (unless->if exp)
+  (make-if (unless-predicate exp)
+           (unless-alternative exp)
+           (unless-consequence exp)))
+
 (define (letrec->let exp)
   (let ((binds (map (lambda (bind)
                       (list (car bind) ''*unassigned*))
@@ -646,4 +662,5 @@
    (add! 'make-unbound! eval-make-unbound!)
    (add! 'delay eval-delay)
    (add! 'letrec eval-letrec)
+   (add! 'unless eval-unless)
    ))
