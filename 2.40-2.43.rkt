@@ -69,27 +69,27 @@
                                    (adjoin-position new-row k rest-of-queens))
                                  (enumerate-interval 1 board-size)))
                           (queen-cols (- k 1))))))
-  (define empty-board nil)
-  (define (make-position row col) (list row col))
-  (define (row-pos p) (car p))
-  (define (col-pos p) (cadr p))
-  (define (adjoin-position row col rest-postions)
-    (cons (make-position row col) rest-postions))
-  (define (safe? col positions)
-    (let ((cur-position (find (lambda (position)
-                                (= col (col-pos position)))
-                              positions))
-          (rest-positions (remove (lambda (position)
-                                   (= col (col-pos position)))
-                                 positions)))
-      (let ((row (row-pos cur-position)))
-        (not (some-test (lambda (position)
-                          (let ((col2 (col-pos position))
-                                (row2 (row-pos position)))
-                            (or (= row2 row)
-                                (and (= (abs (- row2 row)) (abs (- col2 col)))))))
-                        rest-positions)))))
   (queen-cols board-size))
+(define empty-board nil)
+(define (make-position row col) (list row col))
+(define (row-pos p) (car p))
+(define (col-pos p) (cadr p))
+(define (adjoin-position row col rest-postions)
+  (cons (make-position row col) rest-postions))
+(define (safe? col positions)
+  (let ((cur-position (find (lambda (position)
+                              (= col (col-pos position)))
+                            positions))
+        (rest-positions (remove (lambda (position)
+                                  (= col (col-pos position)))
+                                positions)))
+    (let ((row (row-pos cur-position)))
+      (not (some-test (lambda (position)
+                        (let ((col2 (col-pos position))
+                              (row2 (row-pos position)))
+                          (or (= row2 row)
+                              (and (= (abs (- row2 row)) (abs (- col2 col)))))))
+                      rest-positions)))))
 
 (define (find predicate? seq)
   (cond ((null? seq) #F)
@@ -106,7 +106,54 @@
         ((predicate? (car seq)) #T)
         (else
          (some-test predicate? (cdr seq)))))
+(define (each-for-result proc seq)
+  (if (null? seq)
+      #F
+      (let ((res (proc (car seq))))
+        (if res
+            res
+            (each-for-result proc (cdr seq))))))
 
+
+(define (queens-one-way board-size)
+  (define rows (enumerate-interval 1 board-size))
+  (define (place col positions)
+    (if (> col board-size)
+        positions
+        (each-for-result
+         (lambda (new-row)
+           (let ((new-positions (adjoin-position new-row col positions)))
+             (if (safe? col new-positions)
+                 (place (+ col 1) new-positions)
+                 #F)))
+         rows)))
+  (let ((one-way (place 1 empty-board)))
+    (if one-way
+        one-way
+        "no any way")))
+(define (queens2 board-size)
+  (define rows (enumerate-interval 1 board-size))
+  (define (try col positions)
+    (if (> col board-size)
+        positions
+        (try (+ 1 col) (flat-map (lambda (one-positions)
+                                   (map-filter (lambda (new-row)
+                                                 (adjoin-position
+                                                  new-row
+                                                  col
+                                                  one-positions))
+                                               (lambda (test-positions)
+                                                 (safe? col test-positions))
+                                               rows))
+                                 positions))))
+  (try 1 (list empty-board)))
+(define (map-filter transducer predicate? seq)
+  (if (null? seq)
+      nil
+      (let ((res (transducer (car seq))))
+        (if (predicate? res)
+            (cons res (map-filter transducer predicate? (cdr seq)))
+            (map-filter transducer predicate? (cdr seq))))))
 ;; 2.43
-
+;; (1 + 8^1 + 8^2 + 8^3 + 8^4 + 8^5 + 8^6 + 8^7) / 8 * T
   
